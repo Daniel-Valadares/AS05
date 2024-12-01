@@ -15,7 +15,7 @@ from streamlit_js_eval import streamlit_js_eval
 
 load_dotenv()
 os.getenv("AIzaSyB8k3CqdZngSYKdcZH1RyBbOIdCYEvHTjg")
-genai.configure(api_key=os.getenv("AIzaSyB8k3CqdZngSYKdcZH1RyBbOIdCYEvHTjg"))
+genai.configure(api_key="AIzaSyB8k3CqdZngSYKdcZH1RyBbOIdCYEvHTjg")
 
 def update_values(list,documents):
     if documents:
