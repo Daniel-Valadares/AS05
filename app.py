@@ -12,97 +12,139 @@ from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
 from streamlit_js_eval import streamlit_js_eval
 
-# Configuração inicial
+
 load_dotenv()
+os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Função para atualizar lista de arquivos
-def append_file_names(file_list, uploaded_files):
-    if uploaded_files:
-        file_list.extend([file.name for file in uploaded_files])
+def update_values(list, documents):
+    if documents:
+        for document in documents:
+            list.append(document.name)
 
-# Função para processar PDFs
-def extract_text_from_pdfs(uploaded_files):
-    combined_text = ""
-    for file in uploaded_files:
-        with pdfplumber.open(file) as pdf:
-            for i, page in enumerate(pdf.pages, start=1):
-                page_content = page.extract_text()
-                if page_content:
-                    combined_text += f"\n--- Página {i} ---\n{page_content.strip()}\n"
-                for table_index, table in enumerate(page.extract_tables(), start=1):
-                    combined_text += f"\nTabela {table_index} (Página {i}):\n"
-                    combined_text += "\n".join([" | ".join(row or [""]) for row in table]) + "\n"
-    return combined_text.strip()
 
-# Função para dividir texto em blocos
-def create_text_chunks(text, chunk_size, overlap):
-    splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=overlap)
-    return splitter.split_text(text)
+def process_pdf(documents):
+    important_info = ""
+    for document in documents:
+        with pdfplumber.open(document) as pdf:
+            for page_number, page in enumerate(pdf.pages, start=1):
+                # Extrair texto limpo da página
+                page_text = page.extract_text()
+                if page_text:
+                    important_info += f"\n--- Página {page_number} ---\n"
+                    important_info += page_text.strip() + "\n"
 
-# Função para gerar embeddings e salvar índice
-def generate_embeddings(chunks):
+                # Extrair tabelas e formatar como texto
+                tables = page.extract_tables()
+                if tables:
+                    for table_index, table in enumerate(tables, start=1):
+                        important_info += f"\nTabela {table_index} (Página {page_number}):\n"
+                        for row in table:
+                            row_text = " | ".join([cell.strip() if cell else "" for cell in row])
+                            important_info += row_text + "\n"
+
+    return important_info.strip()
+
+
+def process_chunks(text, chunk_size, chunk_overlap):
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = text_splitter.split_text(text)
+    return chunks
+
+
+def embed_text(text_chunks):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    index = FAISS.from_texts(chunks, embeddings)
-    index.save_local("faiss_index")
+    vectors = FAISS.from_texts(text_chunks, embeddings)
+    vectors.save_local("faiss_index")
 
-# Template do prompt para o modelo
-def build_prompt_chain():
-    prompt_text = """
-    Responda à pergunta com base no contexto fornecido. Caso o contexto não contenha a resposta, informe: "Não foi possível responder.".
 
-    Contexto:
+def prompt_template():
+    base_template = """
+    Por favor, responda à pergunta de forma detalhada e completa, utilizando as informações do contexto fornecido. Caso não seja possível responder com base no contexto, diga "Não consegui formular uma resposta :(".
+    Contexto: 
     {context}
 
-    Pergunta:
+    Pergunta: 
     {question}
 
-    Resposta:
-    """
-    chat_model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.5)
-    prompt = PromptTemplate(template=prompt_text, input_variables=["context", "question"])
-    return load_qa_chain(chat_model, chain_type="stuff", prompt=prompt)
+    Instruções: 
+    - Seja direto, mas forneça explicações adicionais quando necessário.
+    - Se a resposta envolver passos ou etapas, apresente-as de forma clara e ordenada.
+    - Caso existam dúvidas ou ambiguidades na pergunta, apresente possíveis interpretações e responda de acordo.
+    - Se o contexto apresentar números, tabelas ou dados, inclua-os na explicação.
 
-# Função para responder perguntas
-def respond_to_question(question):
+    Resposta:
+
+    """
+
+    model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.5)
+
+    prompt = PromptTemplate(template=base_template, input_variables=["context", "question"])
+
+    chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
+
+    return chain
+
+
+def answer_question(user_question):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    index = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-    documents = index.similarity_search(question)
-    chain = build_prompt_chain()
-    response = chain({"input_documents": documents, "question": question}, return_only_outputs=True)
+
+    new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+
+    docs = new_db.similarity_search(user_question)
+
+    chain = prompt_template()
+
+    response = chain(
+        {"input_documents": docs, "question": user_question},
+        return_only_outputs=True)
+
     st.write("Resposta:", response["output_text"])
 
-# Função para reiniciar o aplicativo
-def reset_app():
+
+def clear_cache():
     streamlit_js_eval(js_expressions="parent.window.location.reload()")
 
-# Função principal
+
 def main():
-    st.set_page_config(page_title="Assistente LLM", layout="centered", initial_sidebar_state="collapsed")
-    st.title("Assistente Inteligente para PDFs")
-    st.sidebar.header("Configurações")
+    PAGE_CONFIG = {"page_title": "Assistente Inteligente", "layout": "centered"}
+    st.set_page_config(**PAGE_CONFIG)
 
-    if st.sidebar.button("Reiniciar Sessão"):
-        reset_app()
+    st.title('Interprete PDFs com Inteligência Artificial')
+    st.subheader("Faça perguntas baseadas nos documentos carregados!")
 
-    uploaded_files = st.file_uploader("Envie arquivos PDF", type=["pdf"], accept_multiple_files=True)
-    file_names = ["Todos"]
-    append_file_names(file_names, uploaded_files)
+    if 'chunk_size' not in st.session_state:
+        st.session_state.chunk_size = 500
 
-    selected_files = st.multiselect("Selecione os arquivos:", file_names, placeholder="Escolha os arquivos para o contexto")
-    selected_documents = uploaded_files if "Todos" in selected_files else [file for file in uploaded_files if file.name in selected_files]
+    documents = st.file_uploader("Carregue seus documentos PDF aqui:", type=['pdf'], accept_multiple_files=True)
 
-    if st.button("Processar"):
-        with st.spinner("Processando documentos..."):
-            raw_text = extract_text_from_pdfs(selected_documents)
-            text_chunks = create_text_chunks(raw_text, chunk_size=2000, overlap=500)
-            generate_embeddings(text_chunks)
-        st.success("Documentos processados com sucesso!")
+    file_names = ['Todos']
 
-    question = st.text_input("Faça sua pergunta:")
-    if st.button("Perguntar"):
-        with st.spinner("Buscando resposta..."):
-            respond_to_question(question)
+    st.button("Enviar", on_click=update_values(file_names, documents))
 
-if __name__ == "__main__":
+    selected_files = st.multiselect("Escolha os arquivos para análise:", file_names, placeholder="Selecione os documentos")
+
+    selected_documents = []
+
+    if 'Todos' in selected_files:
+        selected_documents = documents
+    else:
+        for document in documents:
+            if document.name in selected_files:
+                selected_documents.append(document)
+
+    chunk_size = len(selected_documents) * 2000
+    chunk_overlap = chunk_size * 0.25
+
+    user_input = st.text_input("Digite sua pergunta aqui:")
+    if st.button("Responder"):
+        with st.spinner("Processando..."):
+            raw_text = process_pdf(selected_documents)
+            text_chunks = process_chunks(raw_text, chunk_size, chunk_overlap)
+            embed_text(text_chunks)
+        answer_question(user_input)
+        st.success("Processamento concluído!")
+
+
+if __name__ == '__main__':
     main()
