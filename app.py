@@ -48,7 +48,7 @@ def generate_embeddings(chunks):
 
 def build_qa_chain():
     template = """
-    Responda à pergunta com base no contexto abaixo. Caso não seja possível responder, diga "Não consegui formular uma resposta :(".
+    Responda à pergunta com base no contexto abaixo. Caso não seja possível responder, diga "A resposta não pôde ser formulada. Por favor, forneça mais contexto ou materiais adicionais para consulta!".
     Contexto:
     {context}
     Pergunta:
