@@ -12,53 +12,11 @@ from langchain.prompts import PromptTemplate
 from dotenv import load_dotenv
 from streamlit_js_eval import streamlit_js_eval
 
-# Carregar configurações de API
+
 load_dotenv()
+os.getenv("GOOGLE_API_KEY")
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Adicionar estilo personalizado
-st.markdown(
-    """
-    <style>
-    body {
-        background-color: #ffffff;
-        color: #333333;
-    }
-    .stApp {
-        background-color: #ffffff;
-    }
-    .stButton>button {
-        background-color: #4CAF50;
-        color: white;
-        border-radius: 5px;
-        border: none;
-        font-size: 16px;
-        padding: 8px 16px;
-        margin: 4px 2px;
-        cursor: pointer;
-    }
-    .stButton>button:hover {
-        background-color: #45a049;
-    }
-    .stTextInput>div>div input {
-        background-color: #f9f9f9;
-        border: 1px solid #ddd;
-        color: #333;
-    }
-    .stTextInput>div>div input:focus {
-        border-color: #4CAF50;
-        outline: none;
-        box-shadow: 0 0 5px rgba(76, 175, 80, 0.5);
-    }
-    .stSpinner {
-        color: #4CAF50 !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# Funções principais
 def update_values(list, documents):
     if documents:
         for document in documents:
