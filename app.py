@@ -82,8 +82,7 @@ def app():
     file_list = ["Todos"]
     st.button("Atualizar Lista", on_click=append_filenames, args=(file_list, uploaded_files))
     
-    selected_files = st.multiselect("Selecione os arquivos:", file_list, placeholder="Escolha os documentos")
-    chosen_files = uploaded_files if "Todos" in selected_files else [file for file in uploaded_files if file.name in selected_files]
+    chosen_files = uploaded_files
 
     chunk_size = len(chosen_files) * 2000
     chunk_overlap = chunk_size * 0.25
