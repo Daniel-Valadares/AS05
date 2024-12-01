@@ -14,81 +14,51 @@ from streamlit_js_eval import streamlit_js_eval
 
 
 load_dotenv()
+os.getenv("GOOGLE_API_KEY")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# Configurar chave de API do Google
-google_api_key = os.getenv("AIzaSyB8k3CqdZngSYKdcZH1RyBbOIdCYEvHTjg")
-if not google_api_key:
-    st.error("Chave de API do Google não configurada. Verifique o arquivo .env.")
-else:
-    genai.configure(api_key=google_api_key)
-
-
-def update_values(file_list, documents):
-    """Atualiza a lista de arquivos carregados."""
+def update_values(list, documents):
     if documents:
         for document in documents:
-            file_list.append(document.name)
+            list.append(document.name)
 
 
 def process_pdf(documents):
-    """Processa documentos PDF e extrai texto e tabelas."""
-    if not documents:
-        return ""
-
     important_info = ""
-    try:
-        for document in documents:
-            with pdfplumber.open(document) as pdf:
-                for page_number, page in enumerate(pdf.pages, start=1):
-                    # Extrair texto limpo da página
-                    page_text = page.extract_text()
-                    if page_text:
-                        important_info += f"\n--- Página {page_number} ---\n"
-                        important_info += page_text.strip() + "\n"
+    for document in documents:
+        with pdfplumber.open(document) as pdf:
+            for page_number, page in enumerate(pdf.pages, start=1):
+                # Extrair texto limpo da página
+                page_text = page.extract_text()
+                if page_text:
+                    important_info += f"\n--- Página {page_number} ---\n"
+                    important_info += page_text.strip() + "\n"
 
-                    # Extrair tabelas e formatar como texto
-                    tables = page.extract_tables()
-                    if tables:
-                        for table_index, table in enumerate(tables, start=1):
-                            important_info += f"\nTabela {table_index} (Página {page_number}):\n"
-                            for row in table:
-                                row_text = " | ".join([cell.strip() if cell else "" for cell in row])
-                                important_info += row_text + "\n"
+                # Extrair tabelas e formatar como texto
+                tables = page.extract_tables()
+                if tables:
+                    for table_index, table in enumerate(tables, start=1):
+                        important_info += f"\nTabela {table_index} (Página {page_number}):\n"
+                        for row in table:
+                            row_text = " | ".join([cell.strip() if cell else "" for cell in row])
+                            important_info += row_text + "\n"
 
-        return important_info.strip()
-    except Exception as e:
-        st.error(f"Erro ao processar PDFs: {e}")
-        return ""
+    return important_info.strip()
 
 
 def process_chunks(text, chunk_size, chunk_overlap):
-    """Divide o texto em fragmentos menores."""
-    if not text:
-        return []
-    try:
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        return text_splitter.split_text(text)
-    except Exception as e:
-        st.error(f"Erro ao dividir texto em fragmentos: {e}")
-        return []
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    chunks = text_splitter.split_text(text)
+    return chunks
 
 
 def embed_text(text_chunks):
-    """Gera embeddings a partir dos fragmentos de texto."""
-    if not text_chunks:
-        st.error("Nenhum texto para gerar embeddings.")
-        return
-
-    try:
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-        vectors = FAISS.from_texts(text_chunks, embeddings)
-        vectors.save_local("faiss_index")
-    except Exception as e:
-        st.error(f"Erro ao gerar embeddings: {e}")
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    vectors = FAISS.from_texts(text_chunks, embeddings)
+    vectors.save_local("faiss_index")
 
 
 def prompt_template():
-    """Cria o modelo de prompt para geração de respostas."""
     base_template = """
     Por favor, responda à pergunta de forma detalhada e completa, utilizando as informações do contexto fornecido. Caso não seja possível responder com base no contexto, diga "Não consegui formular uma resposta :(".
     Contexto: 
@@ -106,49 +76,56 @@ def prompt_template():
     Resposta:
 
     """
-    try:
-        model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.5)
-        prompt = PromptTemplate(template=base_template, input_variables=["context", "question"])
-        return load_qa_chain(model, chain_type="stuff", prompt=prompt)
-    except Exception as e:
-        st.error(f"Erro ao configurar o modelo: {e}")
-        return None
+
+    model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.5)
+
+    prompt = PromptTemplate(template=base_template, input_variables=["context", "question"])
+
+    chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
+
+    return chain
 
 
 def answer_question(user_question):
-    """Gera uma resposta com base na pergunta do usuário."""
-    try:
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-        new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
 
-        docs = new_db.similarity_search(user_question)
-        chain = prompt_template()
+    new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
 
-        if not chain:
-            st.error("Erro na inicialização do modelo.")
-            return
+    docs = new_db.similarity_search(user_question)
 
-        response = chain({"input_documents": docs, "question": user_question}, return_only_outputs=True)
-        st.write("Resposta:", response["output_text"])
-    except Exception as e:
-        st.error(f"Erro ao gerar resposta: {e}")
+    chain = prompt_template()
+
+    response = chain(
+        {"input_documents": docs, "question": user_question},
+        return_only_outputs=True)
+
+    st.write("Resposta:", response["output_text"])
+
+
+def clear_cache():
+    streamlit_js_eval(js_expressions="parent.window.location.reload()")
 
 
 def main():
-    """Interface principal da aplicação."""
-    st.set_page_config(page_title="Assistente Inteligente", layout="centered")
+    PAGE_CONFIG = {"page_title": "Assistente Inteligente", "layout": "centered"}
+    st.set_page_config(**PAGE_CONFIG)
 
     st.title('Interprete PDFs com Inteligência Artificial')
     st.subheader("Faça perguntas baseadas nos documentos carregados!")
 
+    if 'chunk_size' not in st.session_state:
+        st.session_state.chunk_size = 500
+
     documents = st.file_uploader("Carregue seus documentos PDF aqui:", type=['pdf'], accept_multiple_files=True)
 
     file_names = ['Todos']
-    st.button("Enviar", on_click=update_values, args=(file_names, documents))
+
+    st.button("Enviar", on_click=update_values(file_names, documents))
 
     selected_files = st.multiselect("Escolha os arquivos para análise:", file_names, placeholder="Selecione os documentos")
 
     selected_documents = []
+
     if 'Todos' in selected_files:
         selected_documents = documents
     else:
@@ -157,7 +134,7 @@ def main():
                 selected_documents.append(document)
 
     chunk_size = len(selected_documents) * 2000
-    chunk_overlap = int(chunk_size * 0.25)
+    chunk_overlap = chunk_size * 0.25
 
     user_input = st.text_input("Digite sua pergunta aqui:")
     if st.button("Responder"):
@@ -166,6 +143,7 @@ def main():
             text_chunks = process_chunks(raw_text, chunk_size, chunk_overlap)
             embed_text(text_chunks)
         answer_question(user_input)
+        st.success("Processamento concluído!")
 
 
 if __name__ == '__main__':
