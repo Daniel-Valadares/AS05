@@ -1,0 +1,10 @@
+streamlit
+PyPDF2
+google_generativeai
+langchain
+pdfplumber
+chromadb
+faiss-cpu
+langchain_google_genai
+langchain-community
+streamlit_js_eval
